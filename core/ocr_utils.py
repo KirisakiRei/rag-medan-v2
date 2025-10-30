@@ -4,7 +4,7 @@ import fitz  # PyMuPDF
 from docx import Document
 from PIL import Image
 
-ocr_engine = PaddleOCR(lang='id', use_angle_cls=True)
+ocr_engine = PaddleOCR(lang='id')
 
 def extract_text_from_file(file_path: str, lang: str = "id"):
     """
@@ -29,7 +29,7 @@ def extract_text_from_file(file_path: str, lang: str = "id"):
                 pix = page.get_pixmap(dpi=200)
                 img_path = f"/tmp/page_{page_num}.png"
                 pix.save(img_path)
-                ocr_result = ocr_engine.ocr(img_path, cls=True)
+                ocr_result = ocr_engine.ocr(img_path)
                 if ocr_result:
                     text = "\n".join([line[1][0] for line in ocr_result[0]])
                 os.remove(img_path)
@@ -37,7 +37,7 @@ def extract_text_from_file(file_path: str, lang: str = "id"):
 
     elif ext in [".jpg", ".jpeg", ".png"]:
         # 🔹 OCR single image
-        ocr_result = ocr_engine.ocr(file_path, cls=True)
+        ocr_result = ocr_engine.ocr(file_path)
         if ocr_result:
             text = "\n".join([line[1][0] for line in ocr_result[0]])
             results[1] = text.strip()
