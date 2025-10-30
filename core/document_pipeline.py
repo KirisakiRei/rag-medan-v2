@@ -2,7 +2,7 @@ import os, time, tempfile, requests, logging
 from pathlib import Path
 from datetime import datetime
 from qdrant_client.http import models
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from .ocr_utils import extract_text_from_file
 from .embedding_utils import embed_passage
 
