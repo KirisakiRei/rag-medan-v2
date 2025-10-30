@@ -58,6 +58,29 @@ async def doc_sync(req: DocSyncRequest):
         logger.exception("[API] doc-sync error")
         raise HTTPException(status_code=500, detail=str(e))
 
+class DocSearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+@app.post("/api/doc-search")
+async def doc_search(req: DocSearchRequest):
+    try:
+        vec = embed_query(model_doc, req.query)
+        hits = qdrant.search(collection_name="document_bank", query_vector=vec, limit=req.limit)
+        results = [{
+            "doc_id": h.payload.get("doc_id"),
+            "opd": h.payload.get("opd"),
+            "filename": h.payload.get("filename"),
+            "page_number": h.payload.get("page_number"),
+            "chunk_index": h.payload.get("chunk_index"),
+            "text": h.payload.get("text"),
+            "score": float(h.score)
+        } for h in hits]
+        return {"status": "success", "results": results}
+    except Exception as e:
+        logger.exception("doc-search error")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     uvicorn.run(
