@@ -18,7 +18,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler(LOG_FILE, encoding="utf-8")]
 )
 logger = logging.getLogger("doc_app")
-
+logger.info("=== RAG Document API started successfully ===")
 app = FastAPI(title="RAG Document Service")
 
 # config ...
@@ -60,4 +60,9 @@ async def doc_sync(req: DocSyncRequest):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host=CONFIG["doc_api"]["host"], port=CONFIG["doc_api"]["port"])
+    uvicorn.run(
+        app,
+        host=CONFIG["doc_api"]["host"],
+        port=CONFIG["doc_api"]["port"],
+        log_config=None  # ✅ ini kunci supaya basicConfig kita tidak di-replace
+    )

@@ -1,4 +1,4 @@
-import os, time, tempfile, requests, logging
+import os, time, tempfile, requests, logging, uuid
 from pathlib import Path
 from datetime import datetime
 from qdrant_client.http import models
@@ -45,18 +45,20 @@ def process_document(doc_id, opd, file_url, qdrant, model, lang="id",
         for i, ch in enumerate(chunks):
             vec = embed_passage(model, ch)
             points.append({
-                "id": f"{doc_id}-{i}",
+                "id": str(uuid.uuid4()),  # id unik tiap chunk
                 "vector": vec,
                 "payload": {
-                    "doc_id": doc_id,
+                    "mysql_id": doc_id,
                     "opd": opd,
                     "filename": filename,
                     "page_number": (i // 10) + 1,
                     "chunk_index": i,
                     "text": ch,
+                    "source_type": "document",
                     "created_at": datetime.utcnow().isoformat()
                 }
             })
+
 
         # Pastikan collection
         size = len(points[0]["vector"])
