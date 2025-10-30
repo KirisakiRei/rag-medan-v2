@@ -63,6 +63,5 @@ if __name__ == "__main__":
     uvicorn.run(
         app,
         host=CONFIG["doc_api"]["host"],
-        port=CONFIG["doc_api"]["port"],
-        log_config=None  # ✅ ini kunci supaya basicConfig kita tidak di-replace
+        port=CONFIG["doc_api"]["port"]  # ✅ ini kunci supaya basicConfig kita tidak di-replace
     )
