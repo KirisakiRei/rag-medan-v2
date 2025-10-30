@@ -4,7 +4,7 @@ import fitz  # PyMuPDF
 from docx import Document
 from PIL import Image
 
-ocr_engine = PaddleOCR(lang='id', use_angle_cls=True, show_log=False)
+ocr_engine = PaddleOCR(lang='id', use_angle_cls=True)
 
 def extract_text_from_file(file_path: str, lang: str = "id"):
     """
