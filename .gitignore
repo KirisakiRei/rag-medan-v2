@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Env & config
+.env
+*.env
+
+# Logs & cache
+*.log
+.cache/
+.DS_Store
+
+# Notebooks/outputs (if any)
+*.ipynb_checkpoints/
