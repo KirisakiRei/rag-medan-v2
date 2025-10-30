@@ -48,7 +48,7 @@ def process_document(doc_id, opd, file_url, qdrant, model, lang="id",
                 "id": str(uuid.uuid4()),  # id unik tiap chunk
                 "vector": vec,
                 "payload": {
-                    "doc_id": doc_id,
+                    "mysql_id": doc_id,
                     "opd": opd,
                     "filename": filename,
                     "page_number": (i // 10) + 1,

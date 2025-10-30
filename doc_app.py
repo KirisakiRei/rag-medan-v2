@@ -68,7 +68,7 @@ async def doc_search(req: DocSearchRequest):
         vec = embed_query(model_doc, req.query)
         hits = qdrant.search(collection_name="document_bank", query_vector=vec, limit=req.limit)
         results = [{
-            "doc_id": h.payload.get("doc_id"),
+            "doc_id": h.payload.get("mysql_id"),
             "opd": h.payload.get("opd"),
             "filename": h.payload.get("filename"),
             "page_number": h.payload.get("page_number"),
