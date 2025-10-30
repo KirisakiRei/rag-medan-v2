@@ -88,14 +88,35 @@ def process_document(
 
 
 def _download_temp(url: str) -> str:
-    """Download file dari URL ke temporary directory."""
-    resp = requests.get(url, timeout=120)
-    resp.raise_for_status()
-    suffix = Path(url).suffix or ".bin"
+    """
+    Download file dari URL ke temporary directory,
+    atau baca langsung dari local path jika bukan HTTP(S).
+    """
+    # 🔹 Deteksi apakah URL lokal
+    if url.startswith("file://"):
+        path = url.replace("file://", "")
+    elif url.startswith("/"):
+        path = url
+    else:
+        # 🔹 Kalau dari internet
+        resp = requests.get(url, timeout=120)
+        resp.raise_for_status()
+        suffix = Path(url).suffix or ".bin"
+        fd, tmp = tempfile.mkstemp(suffix=suffix)
+        with os.fdopen(fd, "wb") as f:
+            f.write(resp.content)
+        return tmp
+
+    # 🔹 Kalau lokal file path
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File tidak ditemukan: {path}")
+
+    suffix = Path(path).suffix
     fd, tmp = tempfile.mkstemp(suffix=suffix)
-    with os.fdopen(fd, "wb") as f:
-        f.write(resp.content)
+    with open(path, "rb") as src, os.fdopen(fd, "wb") as dst:
+        dst.write(src.read())
     return tmp
+
 
 
 def _ensure_collection(qdrant, name: str, size: int):
