@@ -97,25 +97,41 @@ async def doc_search(req: DocSearchRequest):
     try:
         logger.info(f"[API] 🔍 doc-search query='{req.query}' limit={req.limit}")
         vec = embed_query(model_doc, req.query)
+        
+        # hasil query_points berupa tuple
         hits = qdrant.query_points(
             collection_name="document_bank",
             query=vec,
             limit=req.limit
         )
-        results = [{
-            "doc_id": h.payload.get("mysql_id"),
-            "opd": h.payload.get("opd"),
-            "filename": h.payload.get("filename"),
-            "page_number": h.payload.get("page_number"),
-            "chunk_index": h.payload.get("chunk_index"),
-            "text": h.payload.get("text"),
-            "score": float(h.score)
-        } for h in hits]
+        
+        # pastikan hasilnya iterable (kadang hits.data / hits.result)
+        points = getattr(hits, "points", None) or getattr(hits, "result", None) or hits
+
+        results = []
+        for h in points:
+            # handle tuple dari (point, score)
+            item = h[0] if isinstance(h, tuple) else h
+            payload = item.payload if hasattr(item, "payload") else item.get("payload", {})
+            score = item.score if hasattr(item, "score") else item.get("score", 0.0)
+
+            results.append({
+                "doc_id": payload.get("mysql_id"),
+                "opd": payload.get("opd"),
+                "filename": payload.get("filename"),
+                "page_number": payload.get("page_number"),
+                "chunk_index": payload.get("chunk_index"),
+                "text": payload.get("text"),
+                "score": float(score)
+            })
+
         logger.info(f"[API] ✅ doc-search results={len(results)} hits")
         return {"status": "success", "results": results}
+
     except Exception as e:
         logger.exception("❌ doc-search error")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ============================================================
