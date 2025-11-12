@@ -7,7 +7,7 @@ from docx import Document
 
 # Inisialisasi engine OCR (gunakan cache agar tidak reload tiap kali)
 # NOTE: tetap sama signature & nama fungsi; internalnya ditingkatkan (multi-thread)
-ocr_engine = PaddleOCR(lang='id', use_angle_cls=True, show_log=False)
+ocr_engine = PaddleOCR(lang='id', use_angle_cls=True)
 
 def _ocr_image_bytes(img_bytes: bytes) -> str:
     """OCR dari bytes gambar (utility internal)."""
