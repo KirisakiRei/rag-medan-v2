@@ -5,14 +5,17 @@ from paddleocr import PaddleOCR
 import fitz  # PyMuPDF
 from docx import Document
 
-# Inisialisasi engine OCR (gunakan cache agar tidak reload tiap kali)
-# NOTE: tetap sama signature & nama fungsi; internalnya ditingkatkan (multi-thread)
-ocr_engine = PaddleOCR(lang='id', use_angle_cls=True)
+# ============================================================
+# 🔹 Inisialisasi engine OCR (gunakan cache agar tidak reload tiap kali)
+# ============================================================
+ocr_engine = PaddleOCR(lang="id", use_angle_cls=True)
 
+# ============================================================
+# 🔹 Utility OCR untuk gambar
+# ============================================================
 def _ocr_image_bytes(img_bytes: bytes) -> str:
     """OCR dari bytes gambar (utility internal)."""
     import tempfile
-    from PIL import Image
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         tmp.write(img_bytes)
         tmp.flush()
@@ -28,6 +31,10 @@ def _ocr_image_bytes(img_bytes: bytes) -> str:
         except Exception:
             pass
 
+
+# ============================================================
+# 🔹 Utility pembersih teks halaman
+# ============================================================
 def _clean_page_text(t: str) -> str:
     """Bersihkan header/footer sederhana, spasi dobel, nomor halaman, dsb."""
     import re
@@ -37,10 +44,14 @@ def _clean_page_text(t: str) -> str:
     t = re.sub(r"^\s*\d{1,4}\s*$", "", t, flags=re.MULTILINE)
     # rapikan spasi
     t = re.sub(r"[ \t]+", " ", t)
-    # gabungkan baris yang putus di tengah
+    # gabungkan baris berlebih
     t = re.sub(r"\n{3,}", "\n\n", t)
     return t.strip()
 
+
+# ============================================================
+# 🔹 Ekstraksi PDF per halaman (hybrid: text + OCR)
+# ============================================================
 def _extract_pdf_pages(pdf_path: str, max_workers: int = 6, dpi: int = 200) -> Dict[int, str]:
     """
     Ekstrak teks PDF per halaman dengan hybrid:
@@ -64,25 +75,25 @@ def _extract_pdf_pages(pdf_path: str, max_workers: int = 6, dpi: int = 200) -> D
         text = _ocr_image_bytes(bytes_)
         return page_num, _clean_page_text(text)
 
-    # paralel
+    # paralel processing
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = [ex.submit(process_page, i) for i in range(1, len(doc) + 1)]
         for fu in as_completed(futures):
             p, t = fu.result()
             pages[p] = t
 
-    # jaga urutan
+    # kembalikan urut per halaman
     return dict(sorted(pages.items(), key=lambda x: x[0]))
 
+
+# ============================================================
+# 🔹 Fungsi utama — Ekstraksi teks dari file
+# ============================================================
 def extract_text_from_file(file_path: str, lang: str = "id", return_pages: bool = False):
     """
     Ekstraksi teks dari file PDF, DOCX, atau gambar.
-    Jika return_pages=True, maka return (full_text, total_pages)
-    Jika False, hanya return full_text saja.
-
-    NOTE:
-    - Signature tidak diubah.
-    - Internal kini multi-thread untuk PDF scan.
+    Jika return_pages=True → kembalikan dict {page_number: text}
+    Jika False → return string gabungan seluruh halaman.
     """
     ext = os.path.splitext(file_path)[1].lower()
     pages = {}
@@ -99,6 +110,7 @@ def extract_text_from_file(file_path: str, lang: str = "id", return_pages: bool 
         pages[1] = _clean_page_text(text)
 
     elif ext == ".docx":
+        # Baca DOCX langsung (tanpa OCR)
         doc = Document(file_path)
         text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
         pages[1] = _clean_page_text(text)
@@ -106,8 +118,9 @@ def extract_text_from_file(file_path: str, lang: str = "id", return_pages: bool 
     else:
         raise ValueError(f"Format file {ext} belum didukung untuk OCR.")
 
-    full_text = "\n\n".join(pages.values()).strip()
-
     if return_pages:
-        return full_text, len(pages)
+        return dict(sorted(pages.items(), key=lambda x: x[0]))
+
+    # gabungkan semua halaman kalau tidak diminta per page
+    full_text = "\n\n".join(pages.values()).strip()
     return full_text

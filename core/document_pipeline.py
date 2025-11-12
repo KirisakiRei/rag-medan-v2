@@ -1,34 +1,12 @@
 import os, time, logging, uuid
 from tqdm import tqdm
 from pathlib import Path
-from paddleocr import PaddleOCR
 from qdrant_client.http import models
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from .ocr_utils import extract_text_from_file
-from .summarizer_utils import summarize_text  # pakai summarizer kamu yg sudah ada
+from .ocr_utils import extract_text_from_file  # sudah hybrid + multithread
+from .summarizer_utils import summarize_text  # summarizer terhubung ke LLM kamu
 
 logger = logging.getLogger("document_pipeline")
-
-# ========================================================
-# 🔹 OCR Helper — baca teks per halaman
-# ========================================================
-def extract_text_per_page(file_path, lang="id"):
-    """
-    Jalankan OCR per halaman PDF.
-    Return: dict {page_number: text}
-    """
-    ocr = PaddleOCR(lang=lang, use_angle_cls=True, show_log=False)  
-    pages = ocr.ocr(file_path, cls=True)
-    result = {}
-
-    for i, page in enumerate(pages, start=1):
-        text = ""
-        for line in page:
-            if line and len(line) > 0:
-                text += line[1][0] + " "
-        result[i] = text.strip()
-    return result
-
 
 # ========================================================
 # 🔹 Fungsi utama: proses dokumen OCR → Chunk → Summarize → Embed → Upload
@@ -46,7 +24,7 @@ def process_document(
 ):
     """
     Proses lengkap dokumen:
-    - OCR per halaman
+    - OCR per halaman (via extract_text_from_file)
     - Chunk per halaman
     - Merge chunk kecil
     - Summarization
@@ -61,10 +39,10 @@ def process_document(
     logger.info(f"[DOC] File sumber: {tmp_path}")
 
     # =====================================================
-    # 1️⃣ OCR per halaman
+    # 1️⃣ OCR per halaman (hybrid)
     # =====================================================
     t0 = time.time()
-    pages = extract_text_per_page(tmp_path, lang=lang)
+    pages = extract_text_from_file(tmp_path, lang=lang, return_pages=True)
     ocr_time = time.time() - t0
     logger.info(f"[DOC] ✅ OCR selesai ({len(pages)} halaman) | waktu {ocr_time:.2f}s")
 
@@ -94,7 +72,7 @@ def process_document(
     logger.info(f"[DOC] ✅ Chunking selesai | total {len(chunks)} chunks | waktu {time.time() - t0:.2f}s")
 
     # =====================================================
-    # 3️⃣ Smart Merge (gabung chunk kecil yang masih satu konteks)
+    # 3️⃣ Smart Merge (gabung chunk kecil)
     # =====================================================
     merged_chunks = []
     buffer = ""
@@ -102,13 +80,11 @@ def process_document(
 
     for c in chunks:
         text = c["text"]
-        # kalau buffer kosong → isi
         if not buffer:
             buffer = text
             buffer_page = c["page_number"]
             continue
 
-        # kalau halaman berurutan dan gabungan < 1800 karakter → merge
         if abs(c["page_number"] - buffer_page) <= 1 and len(buffer) + len(text) < 1800:
             buffer += " " + text
         else:
@@ -116,7 +92,6 @@ def process_document(
             buffer = text
             buffer_page = c["page_number"]
 
-    # jangan lupa masukkan buffer terakhir
     if buffer:
         merged_chunks.append(buffer.strip())
 
