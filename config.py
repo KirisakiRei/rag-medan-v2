@@ -16,7 +16,8 @@ def _env(key, default=None, cast=str):
 CONFIG = {
     "doc_api":{
         "host": _env("DOC_API_HOST"),
-        "port": _env("DOC_API_PORT", 5100, int)
+        "port": _env("DOC_API_PORT", 5100, int),
+        "base_url": _env("DOC_API_BASE_URL", "http://localhost:5100")
     },
     "api": {
         "host": _env("API_HOST"),
@@ -34,7 +35,7 @@ CONFIG = {
         "base_url": _env("LLM_BASE_URL"),
         "api_key": _env("LLM_API_KEY"),
         "model": _env("LLM_MODEL"),
-        "timeout_sec": _env("LLM_TIMEOUT_SEC", 15, int)
+        "timeout_sec": _env("LLM_TIMEOUT_SEC", 60, int)
     },
     "db": {
         "host": _env("DB_HOST"),
