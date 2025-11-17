@@ -47,6 +47,11 @@ CONFIG = {
     "ocr": {
         "engine": _env("OCR_ENGINE", "paddle"),
         "lang": _env("OCR_LANG", "id")
+    },
+    "rag": {
+        "use_post_summary": _env("USE_POST_SUMMARY", "false").lower() == "true",
+        "post_summary_top_k": _env("POST_SUMMARY_TOP_K", 2, int)
     }
+
 
 }

@@ -1,5 +1,5 @@
 # ============================================================
-# ✅ RAG Document API — Standalone tanpa embedding_utils.py
+# ✅ RAG Document API — Standalone dengan Post-Summarization Toggle
 # ============================================================
 import logging, sys, os
 from fastapi import FastAPI, HTTPException, Request
@@ -9,6 +9,7 @@ from qdrant_client import QdrantClient
 from sentence_transformers import SentenceTransformer
 from config import CONFIG
 from core.document_pipeline import process_document
+from core.summarizer_utils import summarize_text  # 🔹 pakai summarizer LLM
 
 # ============================================================
 # 🔹 Setup Logging
@@ -17,7 +18,6 @@ LOG_FILE = "./logs/rag-doc.log"
 
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 
-# bersihkan handler lama (agar tidak bentrok dgn uvicorn)
 for handler in logging.root.handlers[:]:
     logging.root.removeHandler(handler)
 
@@ -82,10 +82,7 @@ class DocSearchRequest(BaseModel):
 # ============================================================
 @app.post("/api/doc-sync")
 async def doc_sync(req: DocSyncRequest):
-    """
-    Endpoint untuk menerima file dokumen (PDF/DOCX/etc)
-    dan menjalankan proses OCR + chunking + indexing ke Qdrant.
-    """
+    """Proses OCR + chunking + indexing dokumen ke Qdrant."""
     try:
         logger.info(f"[API] doc-sync START → doc_id={req.doc_id}, opd={req.opd_name}, url={req.file_url}")
         result = process_document(
@@ -102,7 +99,6 @@ async def doc_sync(req: DocSyncRequest):
             raise HTTPException(status_code=500, detail=result)
         logger.info(f"[API] ✅ doc-sync FINISHED doc_id={req.doc_id} | chunks={result.get('total_chunks')}")
         return result
-
     except HTTPException:
         raise
     except Exception as e:
@@ -110,13 +106,13 @@ async def doc_sync(req: DocSyncRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================
-# 🔹 Document Search API (dipanggil dari Flask RAG Text)
+# 🔹 Document Search API — dgn Post-Summarization Toggle
 # ============================================================
 @app.post("/api/doc-search")
 async def doc_search(req: DocSearchRequest, request: Request):
     """
     Endpoint untuk melakukan pencarian berbasis dokumen (hasil OCR).
-    Dapat dipanggil langsung, atau sebagai fallback dari RAG Text Flask.
+    Jika USE_POST_SUMMARY=true di .env → hasil teratas diringkas.
     """
     try:
         source = request.headers.get("X-RAG-Source", "unknown")
@@ -125,7 +121,7 @@ async def doc_search(req: DocSearchRequest, request: Request):
         # Embed query langsung
         vec = embed_query(model_doc, req.query)
 
-        # Query ke Qdrant collection "document_bank"
+        # Query ke Qdrant
         hits = qdrant.query_points(
             collection_name="document_bank",
             query=vec,
@@ -146,8 +142,8 @@ async def doc_search(req: DocSearchRequest, request: Request):
                 "filename": payload.get("filename"),
                 "page_number": payload.get("page_number"),
                 "chunk_index": payload.get("chunk_index"),
-                "section": payload.get("section"),      # ⬅️ tambahan non-breaking
-                "summary": payload.get("summary"),      # ⬅️ tambahan non-breaking
+                "section": payload.get("section"),
+                "summary": payload.get("summary"),
                 "text": payload.get("text"),
                 "score": float(score)
             })
@@ -158,7 +154,45 @@ async def doc_search(req: DocSearchRequest, request: Request):
 
         logger.info(f"[API] ✅ doc-search results={len(results)} hits | top_score={results[0]['score']:.3f}")
 
-        return {"status": "success", "results": results}
+        # =====================================================
+        # 🧠 Post Summarization (toggle via .env)
+        # =====================================================
+        use_post_summary = CONFIG.get("rag", {}).get("use_post_summary", False)
+        top_k = CONFIG.get("rag", {}).get("post_summary_top_k", 2)
+
+        if use_post_summary:
+            logger.info(f"[POST-SUM] Aktif → meringkas top {top_k} hasil ...")
+            top_results = sorted(results, key=lambda x: -x["score"])[:top_k]
+            combined_text = "\n\n".join(
+                [r["text"] or "" for r in top_results if r.get("text")]
+            )
+
+            try:
+                summary = summarize_text(
+                    f"Berdasarkan potongan dokumen berikut, jawab pertanyaan pengguna dengan ringkas dan informatif:\n\n{combined_text}",
+                    max_sentences=5
+                )
+            except Exception as e:
+                logger.warning(f"[POST-SUM] Gagal meringkas hasil: {e}")
+                summary = "Tidak dapat membuat ringkasan hasil."
+
+            return {
+                "status": "success",
+                "mode": "post-summary",
+                "query": req.query,
+                "summary": summary,
+                "results": top_results
+            }
+
+        # =====================================================
+        # 🚀 Mode Default (tanpa summarization)
+        # =====================================================
+        return {
+            "status": "success",
+            "mode": "direct",
+            "query": req.query,
+            "results": results
+        }
 
     except Exception as e:
         logger.exception("❌ doc-search error")
@@ -172,5 +206,5 @@ if __name__ == "__main__":
         app,
         host=CONFIG["doc_api"]["host"],
         port=CONFIG["doc_api"]["port"],
-        log_config=None  # 👈 penting agar logger custom tetap aktif
+        log_config=None
     )
