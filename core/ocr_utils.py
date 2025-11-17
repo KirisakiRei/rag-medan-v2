@@ -15,9 +15,9 @@ logger = logging.getLogger("ocr_utils")
 ocr_engine = PaddleOCR(
     lang="id",
     use_angle_cls=True,   # rotasi tulisan
-    det=True,             # deteksi kotak teks
-    rec=True,             # pengenalan teks
-    show_log=False        # biar tidak spam
+    # det=True,             # deteksi kotak teks
+    # rec=True,             # pengenalan teks
+    # show_log=False        # biar tidak spam
 )
 
 
