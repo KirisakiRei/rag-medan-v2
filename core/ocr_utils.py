@@ -14,8 +14,7 @@ logger = logging.getLogger("ocr_utils")
 # ============================================================
 ocr_engine = PaddleOCR(
     lang="id",
-    use_angle_cls=True,
-    show_log=False,
+    use_angle_cls=True
 )
 
 # ============================================================
