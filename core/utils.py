@@ -1,4 +1,6 @@
 import re
+import ast
+import json
 
 STOPWORDS = {
     "apa","bagaimana","cara","untuk","dan","atau","yang","dengan",
@@ -22,7 +24,10 @@ SYNONYMS = {
     "bansos": ["bantuan sosial"],
     "damkar": ["pemadam kebakaran"],
     "nib": ["nomor induk berusaha"],
-    "nisn": ["nomor induk siswa nasional"]
+    "nisn": ["nomor induk siswa nasional"],
+    "pkl": ["praktek kerja lapangan"],
+    "SKKNI": ["standar kompetensi kerja nasional indonesia"],
+    "siduta": ["sistem informasi Terpadu Ketenagakerjaan"]
 }
 
 CATEGORY_KEYWORDS = {
@@ -38,7 +43,8 @@ CATEGORY_KEYWORDS = {
         "sekolah","PPDB","SPMB","guru","siswa","beasiswa","prestasi","zonasi","afirmasi","nisn"
     ],
     "019707b1-ebb6-708f-ad4d-bfc65d05f299": [
-        "pengaduan","izin","siup","bantuan","masyarakat","usaha","nib"
+        "pengaduan","izin","siup","bantuan","masyarakat","usaha","nib",
+        "kartu prakerja", "kartu kuning", "AK1","sertifikat","pajak","reklame", "magang", "siduta"
     ],
     "0196f6b9-ba96-70f1-a930-3b89e763170f": [
         "kepala dinas","kadis","sekretaris","jabatan","struktur organisasi"
@@ -107,9 +113,6 @@ def keyword_overlap(a, b):
     return len(A & B) / len(A | B) if A and B else 0.0
 
 
-# ==========================================================
-# 🔹 HARD FILTER LOKAL (dipanggil di ai_pre_filter)
-# ==========================================================
 def hard_filter_local(question: str):
     q = question.lower()
     q_norm = re.sub(r"[^\w\s]", " ", q)
@@ -144,7 +147,7 @@ def hard_filter_local(question: str):
             "clean_question": question
         }
 
-    if len(q_norm.split()) <= 2:
+    if len(q_norm.split()) <= 1:
         return {
             "valid": False,
             "reason": "Pertanyaan terlalu pendek atau tidak jelas",
@@ -156,3 +159,46 @@ def hard_filter_local(question: str):
         "reason": "Lolos hard filter",
         "clean_question": question
     }
+
+
+def safe_parse_answer_id(raw):
+    """
+    Pastikan answer_id selalu berbentuk list Python bersih (tanpa escape string).
+    """
+    if not raw:
+        return []
+
+    # Jika sudah list Python → kembalikan apa adanya
+    if isinstance(raw, list):
+        clean = []
+        for item in raw:
+            # Jika item seperti "\"abc\"" → decode
+            try:
+                if isinstance(item, str) and item.startswith('"') and item.endswith('"'):
+                    clean.append(json.loads(item))
+                else:
+                    clean.append(item)
+            except Exception:
+                clean.append(item)
+        return clean
+
+    # Jika masih string → coba convert
+    try:
+        raw_str = str(raw).strip()
+
+        # Case: '["\"uuid\""]'
+        if raw_str.startswith("[") and raw_str.endswith("]"):
+            arr = ast.literal_eval(raw_str)
+            clean = []
+            for item in arr:
+                try:
+                    clean.append(json.loads(item) if isinstance(item, str) and item.startswith('"') else item)
+                except Exception:
+                    clean.append(item)
+            return clean
+
+        # fallback → bungkus sebagai list
+        return [raw_str]
+
+    except Exception:
+        return [str(raw)]
