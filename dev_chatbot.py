@@ -194,7 +194,8 @@ def query_rag_text(question: str, wa_number: str = "dev-test"):
         print_header("📤 OUTPUT KE WABOT")
         print_separator("─")
         
-        if similar_questions and len(similar_questions) > 0:
+        # Cek status dari API response (bukan hanya similar_questions)
+        if status == "success" and similar_questions and len(similar_questions) > 0:
             top_result = similar_questions[0]
             print(f"\n{Colors.GREEN}{Colors.BOLD}✅ STATUS: SUCCESS{Colors.END}")
             print(f"{Colors.GREEN}{'─' * 80}{Colors.END}")
@@ -206,11 +207,21 @@ def query_rag_text(question: str, wa_number: str = "dev-test"):
             print(f"{Colors.GREEN}{'─' * 80}{Colors.END}")
             logger.info(f"[WABOT OUTPUT] ✅ SUCCESS | Answer ID={top_result.get('answer_id', '-')} | Score={top_result.get('final_score', 0):.3f} | Source={source}")
         else:
+            # Low confidence: status != success ATAU tidak ada results
             print(f"\n{Colors.RED}{Colors.BOLD}❌ STATUS: LOW CONFIDENCE{Colors.END}")
             print(f"{Colors.RED}{'─' * 80}{Colors.END}")
             print(f"{Colors.RED}Tidak ada jawaban yang dikirim ke user{Colors.END}")
             print(f"{Colors.BOLD}Reason        : {Colors.END}{Colors.YELLOW}{message}{Colors.END}")
             print(f"{Colors.BOLD}Source        : {Colors.END}{Colors.YELLOW}{source.upper() if source != 'none' else 'NONE (No relevant results)'}{Colors.END}")
+            
+            # Tampilkan hasil yang ada (tapi ditolak) untuk debugging
+            if similar_questions and len(similar_questions) > 0:
+                print(f"\n{Colors.YELLOW}📋 Hasil ditemukan tapi ditolak:{Colors.END}")
+                top_result = similar_questions[0]
+                print(f"   - Question: {top_result.get('question_rag_name', '-')[:80]}")
+                print(f"   - Score: {top_result.get('final_score', 0):.3f}")
+                print(f"   - Reason: {metadata.get('ai_reason', '-')}")
+            
             print(f"{Colors.RED}{'─' * 80}{Colors.END}")
             logger.info(f"[WABOT OUTPUT] ❌ LOW CONFIDENCE | Reason={message} | Source={source}")
         
