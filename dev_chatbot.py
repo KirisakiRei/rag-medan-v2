@@ -186,6 +186,25 @@ def query_rag_text(question: str, wa_number: str = "dev-test"):
             print_warning("Tidak ada hasil yang ditemukan")
         
         print_separator()
+        
+        # =====================================================
+        # 📤 OUTPUT YANG DIKIRIM KE WABOT
+        # =====================================================
+        print_separator("─")
+        print_header("📤 OUTPUT KE WABOT")
+        print_separator("─")
+        
+        if similar_questions and len(similar_questions) > 0:
+            top_result = similar_questions[0]
+            print(f"{Colors.GREEN}{Colors.BOLD}✅ Answer ID: {top_result.get('answer_id', '-')}{Colors.END}")
+            print(f"{Colors.CYAN}Question: {top_result.get('question_rag_name', '-')[:100]}{Colors.END}")
+            print(f"{Colors.YELLOW}Score: {top_result.get('final_score', 0):.3f} | Note: {top_result.get('note', '-')}{Colors.END}")
+            logger.info(f"[WABOT OUTPUT] Answer ID={top_result.get('answer_id', '-')} | Score={top_result.get('final_score', 0):.3f}")
+        else:
+            print(f"{Colors.RED}❌ Tidak ada jawaban yang dikirim (low confidence){Colors.END}")
+            logger.info("[WABOT OUTPUT] No answer sent (low confidence)")
+        
+        print_separator()
         logger.info("=" * 60)
         
         return data
@@ -318,53 +337,33 @@ def query_rag_document(question: str, limit: int = 3):
 # 🎮 Interactive Chatbot Mode
 # ============================================================
 def interactive_mode():
-    """Mode interaktif untuk testing."""
+    """Mode interaktif untuk testing (langsung query ke RAG Text)."""
     
     print(f"\n{Colors.BOLD}{Colors.HEADER}")
     print("=" * 80)
     print("🤖 DEV CHATBOT — RAG System Testing")
     print("=" * 80)
     print(f"{Colors.END}")
-    print(f"{Colors.CYAN}Commands:{Colors.END}")
-    print(f"  {Colors.BOLD}text{Colors.END}     → Query ke RAG Text (dengan fallback otomatis)")
-    print(f"  {Colors.BOLD}doc{Colors.END}      → Query langsung ke RAG Document")
-    print(f"  {Colors.BOLD}both{Colors.END}     → Query ke keduanya (perbandingan)")
-    print(f"  {Colors.BOLD}exit{Colors.END}     → Keluar dari chatbot")
-    print(f"  {Colors.BOLD}quit{Colors.END}     → Keluar dari chatbot")
+    print(f"{Colors.CYAN}Ketik pertanyaan untuk query ke RAG Text (dengan fallback otomatis){Colors.END}")
+    print(f"{Colors.CYAN}Ketik 'exit' atau 'quit' untuk keluar{Colors.END}")
     print_separator()
 
     while True:
         try:
-            # Input mode
-            print(f"\n{Colors.BOLD}{Colors.YELLOW}Pilih mode [text/doc/both]:{Colors.END} ", end="")
-            mode = input().strip().lower()
+            # Input question
+            print(f"\n{Colors.BOLD}{Colors.YELLOW}Pertanyaan:{Colors.END} ", end="")
+            question = input().strip()
 
-            if mode in ["exit", "quit", "q"]:
+            if question.lower() in ["exit", "quit", "q"]:
                 print_success("Terima kasih! Goodbye! 👋")
                 break
-
-            if mode not in ["text", "doc", "both"]:
-                print_warning("Mode tidak valid! Gunakan: text, doc, atau both")
-                continue
-
-            # Input question
-            print(f"{Colors.BOLD}{Colors.YELLOW}Pertanyaan:{Colors.END} ", end="")
-            question = input().strip()
 
             if not question:
                 print_warning("Pertanyaan tidak boleh kosong!")
                 continue
 
-            # Execute query
-            if mode == "text":
-                query_rag_text(question)
-            elif mode == "doc":
-                query_rag_document(question)
-            elif mode == "both":
-                print(f"\n{Colors.BOLD}{Colors.CYAN}🔄 MODE PERBANDINGAN{Colors.END}")
-                query_rag_text(question)
-                print("\n")
-                query_rag_document(question)
+            # Execute query (default ke RAG Text dengan auto fallback)
+            query_rag_text(question)
 
         except KeyboardInterrupt:
             print(f"\n{Colors.YELLOW}⚠️  Interrupted by user{Colors.END}")

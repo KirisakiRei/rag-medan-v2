@@ -207,6 +207,7 @@ def search():
         payload = {
             "status": "success" if results else "low_confidence",
             "message": "Hasil ditemukan" if results else "Tidak ada hasil cukup relevan",
+            "source": "text",
             "data": {
                 "similar_questions": results if results else rejected,
                 "metadata": {
@@ -230,16 +231,16 @@ def search():
 
         # ==================================================
         # 🔄 FALLBACK KE RAG DOKUMEN
+        # Hanya jika: (1) Tidak ada hasil dari Qdrant, ATAU (2) AI Relevance = False
         # ==================================================
         try:
             should_fallback = (
-                payload["status"] == "low_confidence" or
-                not payload["data"]["similar_questions"] or
-                (results and results[0]["final_score"] < 0.85)
+                len(dense_hits) == 0 or  # Tidak ada hasil dari Qdrant
+                not is_relevant           # AI Relevance menganggap tidak relevan
             )
 
             if should_fallback:
-                logger.info("[FALLBACK] Tidak ada hasil cukup relevan di RAG teks → mencoba ke RAG dokumen")
+                logger.info("[FALLBACK] Tidak ada hasil dari RAG text atau tidak relevan → mencoba ke RAG dokumen")
                 doc_api_url = f"{CONFIG['doc_api']['base_url']}/api/doc-search"
 
                 try:
@@ -258,6 +259,7 @@ def search():
                             payload = {
                                 "status": "success",
                                 "message": "Hasil ditemukan dari dokumen",
+                                "source": "document",
                                 "data": {
                                     "similar_questions": [{
                                         "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
@@ -295,6 +297,8 @@ def search():
                 except requests.exceptions.RequestException as e:
                     logger.error(f"[FALLBACK] Error saat memanggil RAG dokumen: {e}")
                     payload["source"] = "none"
+            else:
+                logger.info("[FALLBACK] ✅ Hasil ditemukan di RAG text, tidak perlu fallback ke dokumen")
 
         except Exception as e:
             logger.error(f"[FALLBACK ERROR] {e}")
