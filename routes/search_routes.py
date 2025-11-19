@@ -255,38 +255,63 @@ def search():
                         doc_data = doc_response.json()
                         if doc_data.get("status") == "success" and doc_data.get("results"):
                             top = doc_data["results"][0]
-                            # Format payload agar konsisten dengan RAG text
-                            payload = {
-                                "status": "success",
-                                "message": "Hasil ditemukan dari dokumen",
-                                "source": "document",
-                                "data": {
-                                    "similar_questions": [{
-                                        "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
-                                        "question_rag_name": top.get("text", "-"),
-                                        "answer_id": None,
-                                        "category_id": None,
-                                        "dense_score": round(top.get("score", 0.0), 3),
-                                        "overlap_score": 0.0,
-                                        "final_score": round(top.get("score", 0.0), 3),
-                                        "note": "from_document_rag"
-                                    }],
-                                    "metadata": {
-                                        "wa_number": wa,
-                                        "original_question": user_q,
-                                        "final_question": question,
-                                        "category": "Dokumen",
-                                        "ai_reason": "Fallback ke RAG dokumen",
-                                        "ai_reformulated": "-",
-                                        "final_score_top": round(top.get("score", 0.0), 3)
+                            doc_text = top.get("text", "")
+                            
+                            # ==================================================
+                            # 🧠 AI RELEVANCE CHECK UNTUK DOKUMEN
+                            # ==================================================
+                            logger.info("[FALLBACK] Mengecek relevansi hasil dokumen dengan AI...")
+                            t_doc_relevance = time.time()
+                            doc_relevance = ai_check_relevance(user_q, doc_text)
+                            t_doc_relevance_time = time.time() - t_doc_relevance
+                            
+                            is_doc_relevant = doc_relevance.get("relevant", False)
+                            logger.info(f"[FALLBACK] AI Relevance dokumen: {is_doc_relevant} | Reason: {doc_relevance.get('reason', '-')}")
+                            
+                            if is_doc_relevant:
+                                # Format payload agar konsisten dengan RAG text
+                                payload = {
+                                    "status": "success",
+                                    "message": "Hasil ditemukan dari dokumen",
+                                    "source": "document",
+                                    "data": {
+                                        "similar_questions": [{
+                                            "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
+                                            "question_rag_name": doc_text,
+                                            "answer_id": None,
+                                            "category_id": None,
+                                            "dense_score": round(top.get("score", 0.0), 3),
+                                            "overlap_score": 0.0,
+                                            "final_score": round(top.get("score", 0.0), 3),
+                                            "note": "from_document_rag"
+                                        }],
+                                        "metadata": {
+                                            "wa_number": wa,
+                                            "original_question": user_q,
+                                            "final_question": question,
+                                            "category": "Dokumen",
+                                            "ai_reason": doc_relevance.get("reason", "-"),
+                                            "ai_reformulated": doc_relevance.get("reformulated_question", "-"),
+                                            "final_score_top": round(top.get("score", 0.0), 3)
+                                        }
+                                    },
+                                    "timing": {
+                                        **payload["timing"],
+                                        "ai_relevance_doc_sec": round(t_doc_relevance_time, 3)
                                     }
-                                },
-                                "timing": payload["timing"]
-                            }
-                            logger.info("[FALLBACK] ✅ Jawaban ditemukan di RAG dokumen")
-                            rag_summary_logger.info(
-                                f"[RAG FALLBACK] {user_q} → Dokumen: {top.get('filename')} (score={top.get('score'):.3f})"
-                            )
+                                }
+                                logger.info("[FALLBACK] ✅ Jawaban relevan dan ditemukan di RAG dokumen")
+                                rag_summary_logger.info(
+                                    f"[RAG FALLBACK] {user_q} → Dokumen: {top.get('filename')} (score={top.get('score'):.3f}, relevant=True)"
+                                )
+                            else:
+                                # Dokumen tidak relevan
+                                logger.info("[FALLBACK] ❌ Hasil dokumen tidak relevan dengan pertanyaan user")
+                                payload["source"] = "none"
+                                payload["message"] = "Tidak ada hasil relevan ditemukan"
+                                rag_summary_logger.info(
+                                    f"[RAG FALLBACK] {user_q} → Dokumen tidak relevan (reason={doc_relevance.get('reason', '-')})"
+                                )
                         else:
                             logger.info("[FALLBACK] Tidak ada hasil relevan di RAG dokumen.")
                             payload["source"] = "none"
