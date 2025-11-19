@@ -196,13 +196,23 @@ def query_rag_text(question: str, wa_number: str = "dev-test"):
         
         if similar_questions and len(similar_questions) > 0:
             top_result = similar_questions[0]
-            print(f"{Colors.GREEN}{Colors.BOLD}✅ Answer ID: {top_result.get('answer_id', '-')}{Colors.END}")
-            print(f"{Colors.CYAN}Question: {top_result.get('question_rag_name', '-')[:100]}{Colors.END}")
-            print(f"{Colors.YELLOW}Score: {top_result.get('final_score', 0):.3f} | Note: {top_result.get('note', '-')}{Colors.END}")
-            logger.info(f"[WABOT OUTPUT] Answer ID={top_result.get('answer_id', '-')} | Score={top_result.get('final_score', 0):.3f}")
+            print(f"\n{Colors.GREEN}{Colors.BOLD}✅ STATUS: SUCCESS{Colors.END}")
+            print(f"{Colors.GREEN}{'─' * 80}{Colors.END}")
+            print(f"{Colors.BOLD}Answer ID     : {Colors.END}{Colors.CYAN}{top_result.get('answer_id', '-')}{Colors.END}")
+            print(f"{Colors.BOLD}Question      : {Colors.END}{Colors.CYAN}{top_result.get('question_rag_name', '-')[:100]}{Colors.END}")
+            print(f"{Colors.BOLD}Final Score   : {Colors.END}{Colors.YELLOW}{top_result.get('final_score', 0):.3f}{Colors.END}")
+            print(f"{Colors.BOLD}Note          : {Colors.END}{Colors.YELLOW}{top_result.get('note', '-')}{Colors.END}")
+            print(f"{Colors.BOLD}Source        : {Colors.END}{Colors.YELLOW}{source.upper()}{Colors.END}")
+            print(f"{Colors.GREEN}{'─' * 80}{Colors.END}")
+            logger.info(f"[WABOT OUTPUT] ✅ SUCCESS | Answer ID={top_result.get('answer_id', '-')} | Score={top_result.get('final_score', 0):.3f} | Source={source}")
         else:
-            print(f"{Colors.RED}❌ Tidak ada jawaban yang dikirim (low confidence){Colors.END}")
-            logger.info("[WABOT OUTPUT] No answer sent (low confidence)")
+            print(f"\n{Colors.RED}{Colors.BOLD}❌ STATUS: LOW CONFIDENCE{Colors.END}")
+            print(f"{Colors.RED}{'─' * 80}{Colors.END}")
+            print(f"{Colors.RED}Tidak ada jawaban yang dikirim ke user{Colors.END}")
+            print(f"{Colors.BOLD}Reason        : {Colors.END}{Colors.YELLOW}{message}{Colors.END}")
+            print(f"{Colors.BOLD}Source        : {Colors.END}{Colors.YELLOW}{source.upper() if source != 'none' else 'NONE (No relevant results)'}{Colors.END}")
+            print(f"{Colors.RED}{'─' * 80}{Colors.END}")
+            logger.info(f"[WABOT OUTPUT] ❌ LOW CONFIDENCE | Reason={message} | Source={source}")
         
         print_separator()
         logger.info("=" * 60)
