@@ -209,6 +209,7 @@ def search():
             "message": "Hasil ditemukan" if results else "Tidak ada hasil cukup relevan",
             "source": "text",
             "data": {
+                "answer_doc": "",
                 "similar_questions": results if results else rejected,
                 "metadata": {
                     "wa_number": wa,
@@ -269,15 +270,16 @@ def search():
                             logger.info(f"[FALLBACK] AI Relevance dokumen: {is_doc_relevant} | Reason: {doc_relevance.get('reason', '-')}")
                             
                             if is_doc_relevant:
-                                # Format payload agar konsisten dengan RAG text
+                                # Format payload dengan answer_doc untuk hasil dokumen
                                 payload = {
                                     "status": "success",
                                     "message": "Hasil ditemukan dari dokumen",
                                     "source": "document",
                                     "data": {
+                                        "answer_doc": doc_text,
                                         "similar_questions": [{
                                             "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
-                                            "question_rag_name": doc_text,
+                                            "question_rag_name": "-",
                                             "answer_id": None,
                                             "category_id": None,
                                             "dense_score": round(top.get("score", 0.0), 3),
@@ -292,7 +294,12 @@ def search():
                                             "category": "Dokumen",
                                             "ai_reason": doc_relevance.get("reason", "-"),
                                             "ai_reformulated": doc_relevance.get("reformulated_question", "-"),
-                                            "final_score_top": round(top.get("score", 0.0), 3)
+                                            "final_score_top": round(top.get("score", 0.0), 3),
+                                            "document_info": {
+                                                "filename": top.get("filename", "-"),
+                                                "page_number": top.get("page_number", "-"),
+                                                "opd": top.get("opd", "-")
+                                            }
                                         }
                                     },
                                     "timing": {
