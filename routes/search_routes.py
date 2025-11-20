@@ -171,6 +171,7 @@ def search():
                 "question": h.payload["question"],
                 "question_rag_name": h.payload["question_rag_name"],
                 "answer_id": safe_parse_answer_id(h.payload.get("answer_id")),
+                "answer_doc": "",
                 "category_id": h.payload.get("category_id"),
                 "dense_score": dense,
                 "overlap_score": overlap,
@@ -209,10 +210,7 @@ def search():
             "message": "Hasil ditemukan" if results else "Tidak ada hasil cukup relevan",
             "source": "text",
             "data": {
-                "similar_questions": {
-                    "answer_doc": "",
-                    "items": results if results else rejected
-                },
+                "similar_questions": results if results else rejected,
                 "metadata": {
                     "wa_number": wa,
                     "original_question": user_q,
@@ -278,19 +276,17 @@ def search():
                                     "message": "Hasil ditemukan dari dokumen",
                                     "source": "document",
                                     "data": {
-                                        "similar_questions": {
+                                        "similar_questions": [{
+                                            "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
+                                            "question_rag_name": "-",
+                                            "answer_id": None,
                                             "answer_doc": doc_text,
-                                            "items": [{
-                                                "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
-                                                "question_rag_name": "-",
-                                                "answer_id": None,
-                                                "category_id": None,
-                                                "dense_score": round(top.get("score", 0.0), 3),
-                                                "overlap_score": 0.0,
-                                                "final_score": round(top.get("score", 0.0), 3),
-                                                "note": "from_document_rag"
-                                            }]
-                                        },
+                                            "category_id": None,
+                                            "dense_score": round(top.get("score", 0.0), 3),
+                                            "overlap_score": 0.0,
+                                            "final_score": round(top.get("score", 0.0), 3),
+                                            "note": "from_document_rag"
+                                        }],
                                         "metadata": {
                                             "wa_number": wa,
                                             "original_question": user_q,
