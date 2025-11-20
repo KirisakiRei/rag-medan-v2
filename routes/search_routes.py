@@ -277,7 +277,7 @@ def search():
                                     "source": "document",
                                     "data": {
                                         "similar_questions": [{
-                                            "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
+                                            "question": "-",
                                             "question_rag_name": "-",
                                             "answer_id": None,
                                             "answer_doc": doc_text,
