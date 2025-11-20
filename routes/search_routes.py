@@ -209,8 +209,10 @@ def search():
             "message": "Hasil ditemukan" if results else "Tidak ada hasil cukup relevan",
             "source": "text",
             "data": {
-                "answer_doc": "",
-                "similar_questions": results if results else rejected,
+                "similar_questions": {
+                    "answer_doc": "",
+                    "items": results if results else rejected
+                },
                 "metadata": {
                     "wa_number": wa,
                     "original_question": user_q,
@@ -276,17 +278,19 @@ def search():
                                     "message": "Hasil ditemukan dari dokumen",
                                     "source": "document",
                                     "data": {
-                                        "answer_doc": doc_text,
-                                        "similar_questions": [{
-                                            "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
-                                            "question_rag_name": "-",
-                                            "answer_id": None,
-                                            "category_id": None,
-                                            "dense_score": round(top.get("score", 0.0), 3),
-                                            "overlap_score": 0.0,
-                                            "final_score": round(top.get("score", 0.0), 3),
-                                            "note": "from_document_rag"
-                                        }],
+                                        "similar_questions": {
+                                            "answer_doc": doc_text,
+                                            "items": [{
+                                                "question": f"[Dokumen] {top.get('filename', 'Unknown')} - Halaman {top.get('page_number', '-')}",
+                                                "question_rag_name": "-",
+                                                "answer_id": None,
+                                                "category_id": None,
+                                                "dense_score": round(top.get("score", 0.0), 3),
+                                                "overlap_score": 0.0,
+                                                "final_score": round(top.get("score", 0.0), 3),
+                                                "note": "from_document_rag"
+                                            }]
+                                        },
                                         "metadata": {
                                             "wa_number": wa,
                                             "original_question": user_q,
