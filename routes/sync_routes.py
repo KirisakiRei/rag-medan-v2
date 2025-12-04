@@ -6,9 +6,9 @@ sync_bp = Blueprint("sync_bp", __name__)
 logger = logging.getLogger("app")
 
 
-def error_response(t, msg, detail=None, code=500):
+def error_response(error_type, message, detail=None, code=500):
     """Helper untuk membuat error response."""
-    payload = {"status": "error", "error": {"type": t, "message": msg}}
+    payload = {"status": "error", "error": {"type": error_type, "message": message}}
     if detail:
         payload["error"]["detail"] = detail
     return jsonify(payload), code
@@ -21,12 +21,12 @@ def sync_data():
         # Import model dan qdrant dari app context
         from app import model, qdrant
         
-        data = request.json
-        if not data or "action" not in data:
+        request_data = request.json
+        if not request_data or "action" not in request_data:
             return error_response("ValidationError", "Field 'action' wajib diisi", code=400)
         
-        action = data["action"]
-        content = data.get("content")
+        action = request_data["action"]
+        content = request_data.get("content")
 
         if action == "bulk_sync":
             if not isinstance(content, list):
@@ -121,6 +121,6 @@ def sync_data():
             return error_response("ValidationError", f"Action '{action}' tidak dikenali", code=400)
 
     except Exception as e:
-        err_trace = traceback.format_exc()
-        logger.error(f"[ERROR][sync_data] {str(e)}\n{err_trace}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"[ERROR][sync_data] {str(e)}\n{error_traceback}")
         return error_response("ServerError", "Kesalahan internal saat sinkronisasi", detail=str(e))

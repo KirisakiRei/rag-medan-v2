@@ -31,11 +31,21 @@ CONFIG = {
         "host": _env("QDRANT_HOST"),
         "port": _env("QDRANT_PORT", 6333, int)
     },
+    # LLM Config Lama (OpenAI-compatible)
+    # "llm": {
+    #     "base_url": _env("LLM_BASE_URL"),
+    #     "api_key": _env("LLM_API_KEY"),
+    #     "model": _env("LLM_MODEL"),
+    #     "timeout_sec": _env("LLM_TIMEOUT_SEC", 60, int)
+    # },
+    
+    # LLM Config Baru (Gemini)
     "llm": {
-        "base_url": _env("LLM_BASE_URL"),
-        "api_key": _env("LLM_API_KEY"),
-        "model": _env("LLM_MODEL"),
-        "timeout_sec": _env("LLM_TIMEOUT_SEC", 60, int)
+        "base_url": _env("LLM_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/models"),
+        "api_key": _env("LLM_API_KEY", "AIzaSyAR9HwRVob0xiPoI8CfRcYQ9hpXNsDc0fM"),
+        "model": _env("LLM_MODEL", "gemini-2.5-flash-lite"),
+        "timeout_sec": _env("LLM_TIMEOUT_SEC", 60, int),
+        "provider": "gemini"  # gemini or openai
     },
     "db": {
         "host": _env("DB_HOST"),

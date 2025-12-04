@@ -7,62 +7,87 @@ logger = logging.getLogger("summarizer_utils")
 logger.setLevel(logging.INFO)
 
 # ambil config LLM dari file utama
-LLM_URL = CONFIG["llm"]["base_url"]
+LLM_BASE_URL = CONFIG["llm"]["base_url"]
 LLM_MODEL = CONFIG["llm"]["model"]
 LLM_API_KEY = CONFIG["llm"]["api_key"]
 TIMEOUT = CONFIG["llm"]["timeout_sec"]
 
-HEADERS = {
-    "Authorization": f"Bearer {LLM_API_KEY}",
-    "Content-Type": "application/json"
-}
+
+def _call_gemini_summarizer(system_prompt: str, user_message: str, temperature: float = 0.4, max_tokens: int = 400):
+    """
+    Helper function untuk memanggil Gemini API untuk summarization.
+    """
+    try:
+        url = f"{LLM_BASE_URL}/{LLM_MODEL}:generateContent?key={LLM_API_KEY}"
+        
+        payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {"text": system_prompt.strip()},
+                        {"text": user_message.strip()}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": temperature,
+                "topP": 0.7,
+                "maxOutputTokens": max_tokens
+            }
+        }
+        
+        headers = {"Content-Type": "application/json"}
+        response = requests.post(url, headers=headers, json=payload, timeout=TIMEOUT)
+        
+        if response.status_code != 200:
+            logger.error(f"[GEMINI-SUMMARIZER] HTTP {response.status_code}: {response.text[:200]}")
+            return None
+            
+        response_data = response.json()
+        candidates = response_data.get("candidates", [])
+        if not candidates:
+            return None
+            
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        if not parts:
+            return None
+            
+        return parts[0].get("text", "").strip()
+        
+    except Exception as e:
+        logger.error(f"[GEMINI-SUMMARIZER] Error: {e}")
+        return None
+
 
 def summarize_text(text: str, max_sentences: int = 3) -> str:
     """
-    Ringkas teks dengan LLM yang terhubung via konfigurasi CONFIG["llm"].
+    Ringkas teks dengan Gemini LLM.
     """
     try:
         # batasi panjang input agar tidak boros token
-        snippet = text.strip()[:4000]
-        prompt = (
+        text_snippet = text.strip()[:4000]
+        
+        system_prompt = "Anda adalah asisten yang ahli dalam meringkas dokumen panjang menjadi versi singkat yang mudah dipahami."
+        user_prompt = (
             f"Ringkas teks berikut menjadi maksimal {max_sentences} kalimat yang padat, jelas, "
-            f"dan tetap mempertahankan konteks penting.\n\nTeks:\n{snippet}"
+            f"dan tetap mempertahankan konteks penting.\n\nTeks:\n{text_snippet}"
         )
 
-        payload = {
-            "model": LLM_MODEL,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "Anda adalah asisten yang ahli dalam meringkas dokumen panjang menjadi versi singkat yang mudah dipahami."
-                },
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.4,
-            "top_p": 0.7,
-            "max_tokens": 400
-        }
+        logger.info(f"[SUMMARIZER] Mengirim teks ({len(text_snippet)} chars) ke Gemini model '{LLM_MODEL}'")
 
-        logger.info(f"[SUMMARIZER] Mengirim teks ({len(snippet)} chars) ke LLM model '{LLM_MODEL}'")
-
-        resp = requests.post(LLM_URL, headers=HEADERS, json=payload, timeout=TIMEOUT)
-        if resp.status_code != 200:
-            logger.warning(f"[SUMMARIZER] HTTP {resp.status_code}: {resp.text[:200]}")
-            return snippet[:350] + "..."
-
-        data = resp.json()
-        summary = (
-            data.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
+        generated_summary = _call_gemini_summarizer(
+            system_prompt=system_prompt,
+            user_message=user_prompt,
+            temperature=0.4,
+            max_tokens=400
         )
 
-        if not summary:
-            logger.warning("[SUMMARIZER] Tidak ada konten balikan dari LLM, pakai fallback.")
-            summary = snippet[:350] + "..."
+        if not generated_summary:
+            logger.warning("[SUMMARIZER] Gemini API error atau empty response, pakai fallback.")
+            generated_summary = text_snippet[:350] + "..."
 
-        return summary
+        return generated_summary
 
     except Exception as e:
         logger.error(f"[SUMMARIZER] Gagal meringkas: {e}")

@@ -22,24 +22,24 @@ ocr_engine = PaddleOCR(
 # ============================================================
 def _ocr_image_bytes(img_bytes: bytes) -> str:
     """OCR dari bytes gambar (utility internal, tanpa multi-thread)."""
-    tmp_path = None
+    temp_file_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            tmp.write(img_bytes)
-            tmp.flush()
-            tmp_path = tmp.name
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            temp_file.write(img_bytes)
+            temp_file.flush()
+            temp_file_path = temp_file.name
 
-        res = ocr_engine.ocr(tmp_path)
-        if res and len(res) > 0:
-            return "\n".join([line[1][0] for line in res[0]])
+        ocr_result = ocr_engine.ocr(temp_file_path)
+        if ocr_result and len(ocr_result) > 0:
+            return "\n".join([line[1][0] for line in ocr_result[0]])
         return ""
     except Exception as e:
         logger.warning(f"[OCR] Gagal OCR image: {e}")
         return ""
     finally:
-        if tmp_path and os.path.exists(tmp_path):
+        if temp_file_path and os.path.exists(temp_file_path):
             try:
-                os.remove(tmp_path)
+                os.remove(temp_file_path)
             except Exception:
                 pass
 
@@ -47,18 +47,18 @@ def _ocr_image_bytes(img_bytes: bytes) -> str:
 # ============================================================
 # 🔹 Utility pembersih teks halaman
 # ============================================================
-def _clean_page_text(t: str) -> str:
+def _clean_page_text(page_text: str) -> str:
     """Bersihkan header/footer sederhana, spasi dobel, nomor halaman, dsb."""
     import re
-    if not t:
+    if not page_text:
         return ""
     # hapus nomor halaman yang berdiri sendiri, misal "12"
-    t = re.sub(r"^\s*\d{1,4}\s*$", "", t, flags=re.MULTILINE)
+    cleaned_text = re.sub(r"^\s*\d{1,4}\s*$", "", page_text, flags=re.MULTILINE)
     # rapikan spasi
-    t = re.sub(r"[ \t]+", " ", t)
+    cleaned_text = re.sub(r"[ \t]+", " ", cleaned_text)
     # gabungkan newline berlebih
-    t = re.sub(r"\n{3,}", "\n\n", t)
-    return t.strip()
+    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text)
+    return cleaned_text.strip()
 
 
 # ============================================================
@@ -71,38 +71,38 @@ def _extract_pdf_pages(pdf_path: str, dpi: int = 180) -> Dict[int, str]:
     - Jika halaman image-scan → render → PaddleOCR
     Diproses SEKUENSIAL (no multi-thread) demi stabilitas.
     """
-    pages: Dict[int, str] = {}
+    extracted_pages: Dict[int, str] = {}
 
     logger.info(f"[PDF] Membuka PDF: {pdf_path}")
-    doc = fitz.open(pdf_path)
-    total_pages = len(doc)
+    pdf_document = fitz.open(pdf_path)
+    total_page_count = len(pdf_document)
 
-    for page_num in range(1, total_pages + 1):
-        page = doc[page_num - 1]
+    for page_number in range(1, total_page_count + 1):
+        current_page = pdf_document[page_number - 1]
 
         # 1) Coba pakai teks bawaan PDF dulu
         try:
-            text = page.get_text("text") or ""
+            extracted_text = current_page.get_text("text") or ""
         except Exception as e:
-            logger.warning(f"[PDF] Gagal get_text di halaman {page_num}: {e}")
-            text = ""
+            logger.warning(f"[PDF] Gagal get_text di halaman {page_number}: {e}")
+            extracted_text = ""
 
-        text = text.strip()
-        if text:
-            pages[page_num] = _clean_page_text(text)
+        extracted_text = extracted_text.strip()
+        if extracted_text:
+            extracted_pages[page_number] = _clean_page_text(extracted_text)
             continue
 
         # 2) Kalau tidak ada teks → OCR dari bitmap
         try:
-            pix = page.get_pixmap(dpi=dpi)
-            bytes_ = pix.tobytes("png")
-            ocr_text = _ocr_image_bytes(bytes_)
-            pages[page_num] = _clean_page_text(ocr_text)
+            page_pixmap = current_page.get_pixmap(dpi=dpi)
+            image_bytes = page_pixmap.tobytes("png")
+            ocr_extracted_text = _ocr_image_bytes(image_bytes)
+            extracted_pages[page_number] = _clean_page_text(ocr_extracted_text)
         except Exception as e:
-            logger.warning(f"[PDF] Gagal render/OCR halaman {page_num}: {e}")
-            pages[page_num] = ""
+            logger.warning(f"[PDF] Gagal render/OCR halaman {page_number}: {e}")
+            extracted_pages[page_number] = ""
 
-    return dict(sorted(pages.items(), key=lambda x: x[0]))
+    return dict(sorted(extracted_pages.items(), key=lambda x: x[0]))
 
 
 # ============================================================
@@ -114,34 +114,34 @@ def extract_text_from_file(file_path: str, lang: str = "id", return_pages: bool 
     Jika return_pages=True → kembalikan dict {page_number: text}
     Jika False → return string gabungan seluruh halaman.
     """
-    ext = os.path.splitext(file_path)[1].lower()
-    pages = {}
+    file_extension = os.path.splitext(file_path)[1].lower()
+    extracted_pages = {}
 
-    if ext == ".pdf":
-        pages = _extract_pdf_pages(file_path, dpi=180)
+    if file_extension == ".pdf":
+        extracted_pages = _extract_pdf_pages(file_path, dpi=180)
 
-    elif ext in [".jpg", ".jpeg", ".png"]:
+    elif file_extension in [".jpg", ".jpeg", ".png"]:
         try:
-            res = ocr_engine.ocr(file_path)
+            ocr_result = ocr_engine.ocr(file_path)
         except Exception as e:
             logger.warning(f"[OCR] Gagal OCR image file {file_path}: {e}")
-            res = None
+            ocr_result = None
 
-        text = ""
-        if res and len(res) > 0:
-            text = "\n".join([line[1][0] for line in res[0]])
-        pages[1] = _clean_page_text(text)
+        extracted_text = ""
+        if ocr_result and len(ocr_result) > 0:
+            extracted_text = "\n".join([line[1][0] for line in ocr_result[0]])
+        extracted_pages[1] = _clean_page_text(extracted_text)
 
-    elif ext == ".docx":
-        doc = Document(file_path)
-        text = "\n".join([p.text.strip() for p in doc.paragraphs if p.text.strip()])
-        pages[1] = _clean_page_text(text)
+    elif file_extension == ".docx":
+        docx_document = Document(file_path)
+        extracted_text = "\n".join([paragraph.text.strip() for paragraph in docx_document.paragraphs if paragraph.text.strip()])
+        extracted_pages[1] = _clean_page_text(extracted_text)
 
     else:
-        raise ValueError(f"Format file {ext} belum didukung untuk OCR.")
+        raise ValueError(f"Format file {file_extension} belum didukung untuk OCR.")
 
     if return_pages:
-        return dict(sorted(pages.items(), key=lambda x: x[0]))
+        return dict(sorted(extracted_pages.items(), key=lambda x: x[0]))
 
-    full_text = "\n\n".join(pages.values()).strip()
+    full_text = "\n\n".join(extracted_pages.values()).strip()
     return full_text

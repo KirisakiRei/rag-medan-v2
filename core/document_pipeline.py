@@ -36,79 +36,79 @@ def process_document(
     """
 
     start_time = time.time()
-    tmp_path = _resolve_file(file_url)
-    filename = Path(tmp_path).name
+    local_file_path = _resolve_file(file_url)
+    document_filename = Path(local_file_path).name
 
     logger.info("=" * 80)
     logger.info(f"[DOC] 🚀 Mulai proses dokumen | doc_id={doc_id} | opd={opd}")
-    logger.info(f"[DOC] File sumber: {tmp_path}")
+    logger.info(f"[DOC] File sumber: {local_file_path}")
 
 
     # =====================================================
     # 1️⃣ OCR Multi-page Aman
     # =====================================================
-    t0 = time.time()
-    pages = extract_text_from_file(tmp_path, lang=lang, return_pages=True)
-    ocr_time = time.time() - t0
+    ocr_start = time.time()
+    extracted_pages = extract_text_from_file(local_file_path, lang=lang, return_pages=True)
+    ocr_duration = time.time() - ocr_start
 
-    logger.info(f"[DOC] ✅ OCR selesai | {len(pages)} halaman | waktu {ocr_time:.2f}s")
+    logger.info(f"[DOC] ✅ OCR selesai | {len(extracted_pages)} halaman | waktu {ocr_duration:.2f}s")
 
 
     # =====================================================
     # 2️⃣ Chunk per Halaman
     # =====================================================
-    splitter = RecursiveCharacterTextSplitter(
+    text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         separators=["\n\n", "\n", ". ", " "]
     )
 
-    chunks = []
+    text_chunks = []
     logger.info("[DOC] ✂️ Mulai chunking halaman...")
 
-    for page_num, text in tqdm(pages.items(), desc="Chunking pages"):
-        if not text.strip():
+    for page_number, page_text in tqdm(extracted_pages.items(), desc="Chunking pages"):
+        if not page_text.strip():
             continue
-        split_chunks = splitter.split_text(text)
+        split_text_chunks = text_splitter.split_text(page_text)
 
-        for i, ch in enumerate(split_chunks):
-            chunks.append({
-                "page_number": page_num,
-                "chunk_index": i,
-                "text": ch.strip()
+        for chunk_index, chunk_text in enumerate(split_text_chunks):
+            text_chunks.append({
+                "page_number": page_number,
+                "chunk_index": chunk_index,
+                "text": chunk_text.strip()
             })
 
-    logger.info(f"[DOC] ✅ Chunking selesai | total chunks: {len(chunks)}")
+    logger.info(f"[DOC] ✅ Chunking selesai | total chunks: {len(text_chunks)}")
 
 
     # =====================================================
     # 3️⃣ Smart Merge — Gabungkan chunk kecil
     # =====================================================
-    merged_chunks = []
-    buffer = ""
-    buffer_page = None
+    merged_text_chunks = []
+    text_buffer = ""
+    buffer_page_number = None
 
-    for c in chunks:
-        text = c["text"]
+    for chunk_item in text_chunks:
+        chunk_text = chunk_item["text"]
 
         # buffer kosong → mulai buffer baru
-        if not buffer:
-            buffer = text
-            buffer_page = c["page_number"]
+        if not text_buffer:
+            text_buffer = chunk_text
+            buffer_page_number = chunk_item["page_number"]
             continue
 
         # halaman masih berdekatan + panjang OK → merge
-        if abs(c["page_number"] - buffer_page) <= 1 and len(buffer) + len(text) < 1800:
-            buffer += " " + text
+        if abs(chunk_item["page_number"] - buffer_page_number) <= 1 and len(text_buffer) + len(chunk_text) < 1800:
+            text_buffer += " " + chunk_text
         else:
-            merged_chunks.append(buffer.strip())
-            buffer = text
-            buffer_page = c["page_number"]
+            merged_text_chunks.append(text_buffer.strip())
+            text_buffer = chunk_text
+            buffer_page_number = chunk_item["page_number"]
 
-    if buffer:
-        merged_chunks.append(buffer.strip())
+    if text_buffer:
+        merged_text_chunks.append(text_buffer.strip())
 
-    logger.info(f"[DOC] 🔧 Merge selesai | merged chunks: {len(merged_chunks)}")
+    logger.info(f"[DOC] 🔧 Merge selesai | merged chunks: {len(merged_text_chunks)}")
 
 
     # =====================================================
@@ -116,26 +116,26 @@ def process_document(
     # =====================================================
     logger.info("[DOC] 🧠 Embedding chunks...")
 
-    points = []
-    for i, chunk_text in enumerate(tqdm(merged_chunks, desc="Embedding")):
+    qdrant_points = []
+    for chunk_index, merged_chunk_text in enumerate(tqdm(merged_text_chunks, desc="Embedding")):
 
-        vec = model.encode(f"passage: {chunk_text}", normalize_embeddings=True).tolist()
+        embedding_vector = model.encode(f"passage: {merged_chunk_text}", normalize_embeddings=True).tolist()
 
-        payload = {
+        chunk_payload = {
             "mysql_id": doc_id,
             "opd": opd,
-            "filename": filename,
-            "page_number": i + 1,
-            "chunk_index": i,
-            "text": chunk_text,
+            "filename": document_filename,
+            "page_number": chunk_index + 1,
+            "chunk_index": chunk_index,
+            "text": merged_chunk_text,
             "source_type": "document",
             "created_at": datetime.utcnow().isoformat()
         }
 
-        points.append(models.PointStruct(
+        qdrant_points.append(models.PointStruct(
             id=str(uuid.uuid4()),
-            vector=vec,
-            payload=payload
+            vector=embedding_vector,
+            payload=chunk_payload
         ))
 
 
@@ -145,20 +145,20 @@ def process_document(
     qdrant.upsert(
         collection_name=collection_name,
         wait=True,
-        points=points
+        points=qdrant_points
     )
 
-    total_time = time.time() - start_time
+    total_duration = time.time() - start_time
 
-    logger.info(f"[DOC] ✅ Upload selesai | {len(points)} chunks → '{collection_name}'")
-    logger.info(f"[PERF] Total: {total_time:.2f}s | OCR={ocr_time:.2f}s | Embedding={total_time - ocr_time:.2f}s")
+    logger.info(f"[DOC] ✅ Upload selesai | {len(qdrant_points)} chunks → '{collection_name}'")
+    logger.info(f"[PERF] Total: {total_duration:.2f}s | OCR={ocr_duration:.2f}s | Embedding={total_duration - ocr_duration:.2f}s")
     logger.info("=" * 80)
 
     return {
         "status": "ok",
-        "filename": filename,
-        "total_chunks": len(points),
-        "duration_sec": round(total_time, 2)
+        "filename": document_filename,
+        "total_chunks": len(qdrant_points),
+        "duration_sec": round(total_duration, 2)
     }
 
 
@@ -168,27 +168,27 @@ def process_document(
 def _resolve_file(url: str) -> str:
     """Detect local file or remote URL."""
     if url.startswith("file://"):
-        path = url.replace("file://", "")
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Local file tidak ditemukan: {path}")
-        return path
+        local_path = url.replace("file://", "")
+        if not os.path.exists(local_path):
+            raise FileNotFoundError(f"Local file tidak ditemukan: {local_path}")
+        return local_path
 
     if os.path.exists(url):
         return url
 
     # Download dari URL
     logger.info(f"[DOC] 🔽 Download file: {url}")
-    t = time.time()
+    download_start = time.time()
 
-    resp = requests.get(url, timeout=150)
-    resp.raise_for_status()
+    http_response = requests.get(url, timeout=150)
+    http_response.raise_for_status()
 
-    suffix = Path(url).suffix or ".bin"
-    fd, tmp = tempfile.mkstemp(suffix=suffix)
+    file_suffix = Path(url).suffix or ".bin"
+    file_descriptor, temp_file_path = tempfile.mkstemp(suffix=file_suffix)
 
-    with os.fdopen(fd, "wb") as f:
-        f.write(resp.content)
+    with os.fdopen(file_descriptor, "wb") as temp_file:
+        temp_file.write(http_response.content)
 
-    logger.info(f"[DOC] ✅ Download selesai ({len(resp.content)/1024/1024:.2f} MB) dalam {time.time()-t:.2f}s")
+    logger.info(f"[DOC] ✅ Download selesai ({len(http_response.content)/1024/1024:.2f} MB) dalam {time.time()-download_start:.2f}s")
 
-    return tmp
+    return temp_file_path

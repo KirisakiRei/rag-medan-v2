@@ -16,9 +16,9 @@ logger = logging.getLogger("app")
 rag_summary_logger = logging.getLogger("rag.summary")
 
 
-def error_response(t, msg, detail=None, code=500):
+def error_response(error_type, message, detail=None, code=500):
     """Helper untuk membuat error response."""
-    payload = {"status": "error", "error": {"type": t, "message": msg}}
+    payload = {"status": "error", "error": {"type": error_type, "message": message}}
     if detail:
         payload["error"]["detail"] = detail
     return jsonify(payload), code
@@ -31,104 +31,104 @@ def search():
         # Import model dan qdrant dari app context
         from app import model, qdrant
         
-        t0 = time.time()
-        data = request.json or {}
-        user_q = (data.get("question") or "").strip()
-        wa = data.get("wa_number", "unknown")
+        start_time = time.time()
+        request_data = request.json or {}
+        user_question = (request_data.get("question") or "").strip()
+        whatsapp_number = request_data.get("wa_number", "unknown")
 
-        if not user_q:
+        if not user_question:
             return jsonify({"status": "error", "message": "Field 'question' wajib diisi"}), 400
 
         # ⭐ TAMBAHAN — LOG PERTANYAAN USER
         logger.info("\n" + "=" * 60)
-        logger.info("[USER-QUESTION] Pertanyaan User : %s", user_q)
+        logger.info("[USER-QUESTION] Pertanyaan User : %s", user_question)
         logger.info("=" * 60)
 
         # ==================================================
         # 🧩 AI FILTER (PRE)
         # ==================================================
-        t_pre = time.time()
-        pre = ai_pre_filter(user_q)
-        t_pre_time = time.time() - t_pre
+        pre_filter_start = time.time()
+        pre_filter_result = ai_pre_filter(user_question)
+        pre_filter_duration = time.time() - pre_filter_start
 
-        if not pre.get("valid", True):
-            total_time = time.time() - t0
+        if not pre_filter_result.get("valid", True):
+            total_duration = time.time() - start_time
             return jsonify({
                 "status": "low_confidence",
-                "message": pre.get("reason", "Pertanyaan tidak relevan"),
+                "message": pre_filter_result.get("reason", "Pertanyaan tidak relevan"),
                 "data": {
                     "similar_questions": [],
                     "metadata": {
-                        "wa_number": wa,
-                        "original_question": user_q,
+                        "wa_number": whatsapp_number,
+                        "original_question": user_question,
                         "final_question": "-",
                         "category": "-",
-                        "ai_reason": pre.get("reason", "-"),
+                        "ai_reason": pre_filter_result.get("reason", "-"),
                         "ai_reformulated": "-",
                         "final_score_top": "-"
                     }
                 },
                 "timing": {
-                    "ai_domain_sec": round(t_pre_time, 3),
+                    "ai_domain_sec": round(pre_filter_duration, 3),
                     "ai_relevance_sec": 0.0,
                     "embedding_sec": 0.0,
                     "qdrant_sec": 0.0,
-                    "total_sec": round(total_time, 3)
+                    "total_sec": round(total_duration, 3)
                 }
             }), 200
 
         # ==================================================
         # 🧩 EMBEDDING & CARI KE QDRANT
         # ==================================================
-        question = normalize_text(clean_location_terms(pre.get("clean_question", user_q)))
-        category = detect_category(question)
-        cat_id = category["id"] if category else None
+        normalized_question = normalize_text(clean_location_terms(pre_filter_result.get("clean_question", user_question)))
+        detected_category = detect_category(normalized_question)
+        category_id = detected_category["id"] if detected_category else None
 
-        t_emb = time.time()
-        qvec = model.encode("query: " + question).tolist()
-        emb_time = time.time() - t_emb
+        embedding_start = time.time()
+        query_vector = model.encode("query: " + normalized_question).tolist()
+        embedding_duration = time.time() - embedding_start
 
-        t_qd = time.time()
-        filt = models.Filter(must=[
+        qdrant_start = time.time()
+        category_filter = models.Filter(must=[
             models.FieldCondition(
                 key="category_id",
-                match=models.MatchValue(value=cat_id)
+                match=models.MatchValue(value=category_id)
             )
-        ]) if cat_id else None
+        ]) if category_id else None
 
-        dense_hits = qdrant.search(
+        qdrant_results = qdrant.search(
             collection_name="knowledge_bank",
-            query_vector=qvec,
+            query_vector=query_vector,
             limit=5,
-            query_filter=filt
+            query_filter=category_filter
         )
-        qd_time = time.time() - t_qd
+        qdrant_duration = time.time() - qdrant_start
 
         # ==================================================
         # 🧾 LOG HASIL QDRANT
         # ==================================================
         try:
-            if dense_hits:
+            if qdrant_results:
                 logger.info("\n" + "=" * 60)
                 logger.info("[RAG-SEARCH] Kandidat Hasil Pencarian Awal")
                 logger.info("-" * 60)
 
-                for idx, h in enumerate(dense_hits[:3], start=1):
-                    q = (h.payload.get("question_rag_name") or "-").strip()
-                    s_dense = float(getattr(h, "score", 0.0))
-                    a = safe_parse_answer_id(h.payload.get("answer_id"))
-                    c = h.payload.get("category_id", "-")
+                for index, hit in enumerate(qdrant_results[:3], start=1):
+                    rag_question = (hit.payload.get("question_rag_name") or "-").strip()
+                    dense_score = float(getattr(hit, "score", 0.0))
+                    answer_id = safe_parse_answer_id(hit.payload.get("answer_id"))
+                    category_id_hit = hit.payload.get("category_id", "-")
 
-                    overlap = keyword_overlap(question, q)
-                    final_score = round((0.65 * s_dense) + (0.35 * overlap), 3)
+                    overlap_score = keyword_overlap(normalized_question, rag_question)
+                    final_score = round((0.65 * dense_score) + (0.35 * overlap_score), 3)
 
                     logger.info(
-                        f"[{idx}] Question : {q}\n"
-                        f"     DenseScore  : {s_dense:.3f}\n"
-                        f"     OverlapScore: {overlap:.3f}\n"
+                        f"[{index}] Question : {rag_question}\n"
+                        f"     DenseScore  : {dense_score:.3f}\n"
+                        f"     OverlapScore: {overlap_score:.3f}\n"
                         f"     FinalScore  : {final_score:.3f}\n"
-                        f"     CategoryID  : {c}\n"
-                        f"     AnswerID    : {a}\n"
+                        f"     CategoryID  : {category_id_hit}\n"
+                        f"     AnswerID    : {answer_id}\n"
                         + "-" * 60
                     )
                 logger.info("=" * 60 + "\n")
@@ -140,93 +140,93 @@ def search():
         # ==================================================
         # 🧠 AI RELEVANCE CHECK
         # ==================================================
-        t_post = time.time()
-        relevance = {}
-        if dense_hits:
-            relevance = ai_check_relevance(user_q, dense_hits[0].payload["question_rag_name"])
-        t_post_time = time.time() - t_post
+        relevance_check_start = time.time()
+        relevance_result = {}
+        if qdrant_results:
+            relevance_result = ai_check_relevance(user_question, qdrant_results[0].payload["question_rag_name"])
+        relevance_check_duration = time.time() - relevance_check_start
 
         # ==================================================
         # ⚙️ SCORING
         # ==================================================
-        results, rejected = [], []
-        for h in dense_hits:
-            dense = float(h.score)
-            overlap = keyword_overlap(question, h.payload["question_rag_name"])
-            final_score = round((0.65 * dense) + (0.35 * overlap), 3)
+        accepted_results, rejected_results = [], []
+        for hit in qdrant_results:
+            dense_score = float(hit.score)
+            overlap_score = keyword_overlap(normalized_question, hit.payload["question_rag_name"])
+            final_score = round((0.65 * dense_score) + (0.35 * overlap_score), 3)
 
-            note, accepted = "-", False
-            if dense >= 0.90:
-                accepted, note = True, "auto_accepted_by_dense"
-            elif 0.86 <= dense <= 0.89 and overlap >= 0.25:
-                accepted, note = True, "accepted_by_overlap"
+            acceptance_note, is_accepted = "-", False
+            if dense_score >= 0.90:
+                is_accepted, acceptance_note = True, "auto_accepted_by_dense"
+            elif 0.86 <= dense_score <= 0.89 and overlap_score >= 0.25:
+                is_accepted, acceptance_note = True, "accepted_by_overlap"
 
             try:
-                if not accepted and dense >= 0.83 and overlap >= 0.15 and relevance.get("relevant", False):
-                    accepted, note = True, "accepted_by_ai_relevance"
+                if not is_accepted and dense_score >= 0.83 and overlap_score >= 0.15 and relevance_result.get("relevant", False):
+                    is_accepted, acceptance_note = True, "accepted_by_ai_relevance"
             except Exception:
                 pass
 
-            item = {
-                "question": h.payload["question"],
-                "question_rag_name": h.payload["question_rag_name"],
-                "answer_id": safe_parse_answer_id(h.payload.get("answer_id")),
+            result_item = {
+                "question": hit.payload["question"],
+                "question_rag_name": hit.payload["question_rag_name"],
+                "answer_id": safe_parse_answer_id(hit.payload.get("answer_id")),
                 "answer_doc": "",
-                "category_id": h.payload.get("category_id"),
-                "dense_score": dense,
-                "overlap_score": overlap,
+                "category_id": hit.payload.get("category_id"),
+                "dense_score": dense_score,
+                "overlap_score": overlap_score,
                 "final_score": final_score,
-                "note": note
+                "note": acceptance_note
             }
-            (results if accepted else rejected).append(item)
+            (accepted_results if is_accepted else rejected_results).append(result_item)
 
-        results = sorted(results, key=lambda x: x["final_score"], reverse=True)
-        rejected = sorted(rejected, key=lambda x: x["final_score"], reverse=True)
+        accepted_results = sorted(accepted_results, key=lambda x: x["final_score"], reverse=True)
+        rejected_results = sorted(rejected_results, key=lambda x: x["final_score"], reverse=True)
 
         # ==================================================
         # 🚫 FILTER KETIKA RELEVANCE = FALSE
         # ==================================================
-        is_relevant = relevance.get("relevant", True)
-        if not is_relevant:
+        is_question_relevant = relevance_result.get("relevant", True)
+        if not is_question_relevant:
             logger.info("[AI-POST] Pertanyaan dinilai TIDAK relevan oleh model relevance-check.")
-            results = []
+            accepted_results = []
 
         # ⭐ TAMBAHAN — LOG OUTPUT YANG AKAN DIKIRIM KE WABOT
-        if results:
-            final_rag = results[0]["question_rag_name"]
+        if accepted_results:
+            final_rag_output = accepted_results[0]["question_rag_name"]
         else:
-            final_rag = "-"
+            final_rag_output = "-"
 
         logger.info("\n" + "=" * 60)
-        logger.info(f"[AI-POST] Output akan dikirim ke WABOT: '{final_rag}'")
+        logger.info(f"[AI-POST] Output akan dikirim ke WABOT: '{final_rag_output}'")
         logger.info("=" * 60)
 
         # ==================================================
         # 📦 RESPONSE PAYLOAD
         # ==================================================
-        total_time = time.time() - t0
-        payload = {
-            "status": "success" if results else "low_confidence",
-            "message": "Hasil ditemukan" if results else "Tidak ada hasil cukup relevan",
+        total_duration = time.time() - start_time
+        response_payload = {
+            "status": "success" if accepted_results else "low_confidence",
+            "message": "Hasil ditemukan" if accepted_results else "Tidak ada hasil cukup relevan",
             "source": "text",
             "data": {
-                "similar_questions": results if results else rejected,
+                "similar_questions": accepted_results if accepted_results else rejected_results,
                 "metadata": {
-                    "wa_number": wa,
-                    "original_question": user_q,
-                    "final_question": question,
-                    "category": (category["name"] if category else "Global"),
-                    "ai_reason": relevance.get("reason", "-") if relevance else "-",
-                    "ai_reformulated": relevance.get("reformulated_question", "-") if relevance else "-",
-                    "final_score_top": (results[0]["final_score"] if results else "-")
+                    "wa_number": whatsapp_number,
+                    "original_question": user_question,
+                    "final_question": normalized_question,
+                    "category": (detected_category["name"] if detected_category else "Global"),
+                    "ai_reason": relevance_result.get("reason", "-") if relevance_result else "-",
+                    "ai_reformulated": relevance_result.get("reformulated_question", "-") if relevance_result else "-",
+                    "final_score_top": (accepted_results[0]["final_score"] if accepted_results else "-")
                 }
             },
             "timing": {
-                "ai_domain_sec": round(t_pre_time, 3),
-                "ai_relevance_sec": round(t_post_time, 3),
-                "embedding_sec": round(emb_time, 3),
-                "qdrant_sec": round(qd_time, 3),
-                "total_sec": round(total_time, 3)
+                "ai_domain_sec": round(pre_filter_duration, 3),
+                "ai_relevance_sec": round(relevance_check_duration, 3),
+                "embedding_sec": round(embedding_duration, 3),
+                "qdrant_sec": round(qdrant_duration, 3),
+                "total_sec": round(total_duration, 3)
             }
         }
 
@@ -235,43 +235,43 @@ def search():
         # Hanya jika: (1) Tidak ada hasil dari Qdrant, ATAU (2) AI Relevance = False
         # ==================================================
         try:
-            should_fallback = (
-                len(dense_hits) == 0 or  # Tidak ada hasil dari Qdrant
-                not is_relevant           # AI Relevance menganggap tidak relevan
+            should_fallback_to_document = (
+                len(qdrant_results) == 0 or
+                not is_question_relevant
             )
 
-            if should_fallback:
+            if should_fallback_to_document:
                 logger.info("[FALLBACK] Tidak ada hasil dari RAG text atau tidak relevan → mencoba ke RAG dokumen")
                 doc_api_url = f"{CONFIG['doc_api']['base_url']}/api/doc-search"
 
                 try:
                     doc_response = requests.post(
                         doc_api_url,
-                        json={"query": user_q, "limit": 3},
+                        json={"query": user_question, "limit": 3},
                         headers={"X-RAG-Source": "text-fallback"},
                         timeout=12
                     )
 
                     if doc_response.status_code == 200:
-                        doc_data = doc_response.json()
-                        if doc_data.get("status") == "success" and doc_data.get("results"):
-                            top = doc_data["results"][0]
-                            doc_text = top.get("text", "")
+                        doc_response_data = doc_response.json()
+                        if doc_response_data.get("status") == "success" and doc_response_data.get("results"):
+                            top_document = doc_response_data["results"][0]
+                            document_text = top_document.get("text", "")
                             
                             # ==================================================
                             # 🧠 AI RELEVANCE CHECK UNTUK DOKUMEN
                             # ==================================================
                             logger.info("[FALLBACK] Mengecek relevansi hasil dokumen dengan AI...")
-                            t_doc_relevance = time.time()
-                            doc_relevance = ai_check_relevance(user_q, doc_text)
-                            t_doc_relevance_time = time.time() - t_doc_relevance
+                            doc_relevance_start = time.time()
+                            doc_relevance_result = ai_check_relevance(user_question, document_text)
+                            doc_relevance_duration = time.time() - doc_relevance_start
                             
-                            is_doc_relevant = doc_relevance.get("relevant", False)
-                            logger.info(f"[FALLBACK] AI Relevance dokumen: {is_doc_relevant} | Reason: {doc_relevance.get('reason', '-')}")
+                            is_document_relevant = doc_relevance_result.get("relevant", False)
+                            logger.info(f"[FALLBACK] AI Relevance dokumen: {is_document_relevant} | Reason: {doc_relevance_result.get('reason', '-')}")
                             
-                            if is_doc_relevant:
+                            if is_document_relevant:
                                 # Format payload dengan answer_doc untuk hasil dokumen
-                                payload = {
+                                response_payload = {
                                     "status": "success",
                                     "message": "Hasil ditemukan dari dokumen",
                                     "source": "document",
@@ -280,69 +280,69 @@ def search():
                                             "question": "-",
                                             "question_rag_name": "-",
                                             "answer_id": None,
-                                            "answer_doc": doc_text,
+                                            "answer_doc": document_text,
                                             "category_id": None,
-                                            "dense_score": round(top.get("score", 0.0), 3),
+                                            "dense_score": round(top_document.get("score", 0.0), 3),
                                             "overlap_score": 0.0,
-                                            "final_score": round(top.get("score", 0.0), 3),
+                                            "final_score": round(top_document.get("score", 0.0), 3),
                                             "note": "from_document_rag"
                                         }],
                                         "metadata": {
-                                            "wa_number": wa,
-                                            "original_question": user_q,
-                                            "final_question": question,
+                                            "wa_number": whatsapp_number,
+                                            "original_question": user_question,
+                                            "final_question": normalized_question,
                                             "category": "Dokumen",
-                                            "ai_reason": doc_relevance.get("reason", "-"),
-                                            "ai_reformulated": doc_relevance.get("reformulated_question", "-"),
-                                            "final_score_top": round(top.get("score", 0.0), 3),
+                                            "ai_reason": doc_relevance_result.get("reason", "-"),
+                                            "ai_reformulated": doc_relevance_result.get("reformulated_question", "-"),
+                                            "final_score_top": round(top_document.get("score", 0.0), 3),
                                             "document_info": {
-                                                "filename": top.get("filename", "-"),
-                                                "page_number": top.get("page_number", "-"),
-                                                "opd": top.get("opd", "-")
+                                                "filename": top_document.get("filename", "-"),
+                                                "page_number": top_document.get("page_number", "-"),
+                                                "opd": top_document.get("opd", "-")
                                             }
                                         }
                                     },
                                     "timing": {
-                                        **payload["timing"],
-                                        "ai_relevance_doc_sec": round(t_doc_relevance_time, 3)
+                                        **response_payload["timing"],
+                                        "ai_relevance_doc_sec": round(doc_relevance_duration, 3)
                                     }
                                 }
                                 logger.info("[FALLBACK] ✅ Jawaban relevan dan ditemukan di RAG dokumen")
                                 rag_summary_logger.info(
-                                    f"[RAG FALLBACK] {user_q} → Dokumen: {top.get('filename')} (score={top.get('score'):.3f}, relevant=True)"
+                                    f"[RAG FALLBACK] {user_question} → Dokumen: {top_document.get('filename')} (score={top_document.get('score'):.3f}, relevant=True)"
                                 )
                             else:
                                 # Dokumen tidak relevan
                                 logger.info("[FALLBACK] ❌ Hasil dokumen tidak relevan dengan pertanyaan user")
-                                payload["source"] = "none"
-                                payload["message"] = "Tidak ada hasil relevan ditemukan"
+                                response_payload["source"] = "none"
+                                response_payload["message"] = "Tidak ada hasil relevan ditemukan"
                                 rag_summary_logger.info(
-                                    f"[RAG FALLBACK] {user_q} → Dokumen tidak relevan (reason={doc_relevance.get('reason', '-')})"
+                                    f"[RAG FALLBACK] {user_question} → Dokumen tidak relevan (reason={doc_relevance_result.get('reason', '-')})"
                                 )
                         else:
                             logger.info("[FALLBACK] Tidak ada hasil relevan di RAG dokumen.")
-                            payload["source"] = "none"
+                            response_payload["source"] = "none"
                     else:
                         logger.warning(f"[FALLBACK] Gagal menghubungi RAG dokumen: HTTP {doc_response.status_code}")
-                        payload["source"] = "none"
+                        response_payload["source"] = "none"
 
                 except requests.exceptions.RequestException as e:
                     logger.error(f"[FALLBACK] Error saat memanggil RAG dokumen: {e}")
-                    payload["source"] = "none"
+                    response_payload["source"] = "none"
             else:
                 logger.info("[FALLBACK] ✅ Hasil ditemukan di RAG text, tidak perlu fallback ke dokumen")
 
         except Exception as e:
             logger.error(f"[FALLBACK ERROR] {e}")
-            payload["source"] = "none"
+            response_payload["source"] = "none"
 
         # ⭐ TAMBAHAN — LOG TOTAL WAKTU REQUEST
-        logger.info(f"[REQUEST] Total waktu permintaan: {total_time:.3f} detik")
+        logger.info(f"[REQUEST] Total waktu permintaan: {total_duration:.3f} detik")
         logger.info("=" * 60 + "\n")
 
-        return jsonify(payload), 200
+        return jsonify(response_payload), 200
 
     except Exception as e:
-        err_trace = traceback.format_exc()
-        logger.error(f"[ERROR][search] {str(e)}\n{err_trace}")
+        error_traceback = traceback.format_exc()
+        logger.error(f"[ERROR][search] {str(e)}\n{error_traceback}")
         return error_response("ServerError", "Kesalahan internal", detail=str(e))
