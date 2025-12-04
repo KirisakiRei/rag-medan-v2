@@ -1,9 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import logging
-from doc_app import qdrant, model_doc
-from config import CONFIG
-from core.document_pipeline import process_document
 
 doc_sync_router = APIRouter()
 logger = logging.getLogger("doc_app")
@@ -19,6 +16,11 @@ class DocSyncRequest(BaseModel):
 async def doc_sync(sync_request: DocSyncRequest):
     """Proses OCR + chunking + indexing dokumen ke Qdrant."""
     try:
+        # Import di dalam fungsi untuk menghindari circular import
+        from doc_app import qdrant, model_doc
+        from config import CONFIG
+        from core.document_pipeline import process_document
+        
         logger.info(f"[API] doc-sync START → doc_id={sync_request.doc_id}, opd={sync_request.opd_name}, url={sync_request.file_url}")
         
         processing_result = process_document(

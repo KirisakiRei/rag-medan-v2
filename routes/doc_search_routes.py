@@ -1,9 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 import logging
-from doc_app import qdrant, model_doc, embed_query
-from config import CONFIG
-from core.summarizer_utils import summarize_text
 
 doc_search_router = APIRouter()
 logger = logging.getLogger("doc_app")
@@ -21,6 +18,11 @@ async def doc_search(search_request: DocSearchRequest, request: Request):
     Jika USE_POST_SUMMARY=true di .env → hasil teratas diringkas.
     """
     try:
+        # Import di dalam fungsi untuk menghindari circular import
+        from doc_app import qdrant, model_doc, embed_query
+        from config import CONFIG
+        from core.summarizer_utils import summarize_text
+        
         request_source = request.headers.get("X-RAG-Source", "unknown")
         logger.info(f"[API] 🔍 doc-search query='{search_request.query}' limit={search_request.limit} | source={request_source}")
 
